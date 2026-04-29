@@ -3,7 +3,6 @@ import Replicate from "replicate";
 import dotenv from "dotenv";
 import cors from "cors";
 import multer from "multer";
-import fs from "fs";
 
 dotenv.config();
 
@@ -15,6 +14,9 @@ app.use(express.json());
 // File upload setup
 // --------------------
 const upload = multer({ dest: "uploads/" });
+
+// Serve uploaded files
+app.use("/uploads", express.static("uploads"));
 
 // --------------------
 // Health check
@@ -53,9 +55,8 @@ app.post("/clone", upload.single("voice"), async (req, res) => {
       });
     }
 
-    // Convert local file path to public URL (IMPORTANT)
-    // You MUST replace this with S3 / Firebase in production
-    const speaker_wav = `${req.protocol}://${req.get("host")}/${file.path}`;
+    // ⚠️ TEMP FIX (still not production perfect)
+    const speaker_wav = `${req.protocol}://${req.get("host")}/uploads/${file.filename}`;
 
     const output = await replicate.run("coqui/xtts-v2", {
       input: {
@@ -80,12 +81,7 @@ app.post("/clone", upload.single("voice"), async (req, res) => {
 });
 
 // --------------------
-// Serve uploaded files
-// --------------------
-app.use("/uploads", express.static("uploads"));
-
-// --------------------
-// Start server (Base44 / Railway safe)
+// Start server
 // --------------------
 const PORT = process.env.PORT || 8080;
 
