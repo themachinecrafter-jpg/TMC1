@@ -2,78 +2,93 @@ import express from "express";
 import Replicate from "replicate";
 import dotenv from "dotenv";
 import cors from "cors";
+import multer from "multer";
+import fs from "fs";
 
 dotenv.config();
 
 const app = express();
-app.use(express.json());
 app.use(cors());
+app.use(express.json());
 
 // --------------------
-// Health check route
+// File upload setup
+// --------------------
+const upload = multer({ dest: "uploads/" });
+
+// --------------------
+// Health check
 // --------------------
 app.get("/", (req, res) => {
-  res.send("XTTS API is running");
+  res.send("XTTS Voice Cloning API Running");
 });
 
 // --------------------
-// Create Replicate client safely
+// Replicate client
 // --------------------
 const createReplicate = () => {
-  if (!process.env.REPLICATE_API_TOKEN) {
-    console.error("❌ Missing REPLICATE_API_TOKEN");
-    return null;
-  }
+  const token = process.env.REPLICATE_API_TOKEN;
+  if (!token) return null;
 
-  return new Replicate({
-    auth: process.env.REPLICATE_API_TOKEN,
-  });
+  return new Replicate({ auth: token });
 };
 
 // --------------------
-// TTS endpoint
+// Voice cloning endpoint
 // --------------------
-app.post("/tts", async (req, res) => {
+app.post("/clone", upload.single("voice"), async (req, res) => {
   try {
     const replicate = createReplicate();
 
     if (!replicate) {
-      return res.status(500).json({
-        error: "Server missing API token"
-      });
+      return res.status(500).json({ error: "Missing API token" });
     }
 
     const { text } = req.body;
+    const file = req.file;
 
-    if (!text || text.trim() === "") {
+    if (!text || !file) {
       return res.status(400).json({
-        error: "Text is required"
+        error: "Text and voice recording are required",
       });
     }
 
+    // Convert local file path to public URL (IMPORTANT)
+    // You MUST replace this with S3 / Firebase in production
+    const speaker_wav = `${req.protocol}://${req.get("host")}/${file.path}`;
+
     const output = await replicate.run("coqui/xtts-v2", {
       input: {
-        text,
-        speaker: "female_en_1",
-        language: "en"
-      }
+        text: text.trim(),
+        language: "en",
+        speaker_wav,
+      },
     });
 
-    res.json({ audio: output });
+    const audio = Array.isArray(output) ? output[0] : output;
 
+    res.json({
+      success: true,
+      audio,
+    });
   } catch (err) {
-    console.error("TTS ERROR:", err);
+    console.error(err);
     res.status(500).json({
-      error: err.message || "TTS failed"
+      error: err.message || "Cloning failed",
     });
   }
 });
 
 // --------------------
-// Railway-safe PORT handling
+// Serve uploaded files
+// --------------------
+app.use("/uploads", express.static("uploads"));
+
+// --------------------
+// Start server (Base44 / Railway safe)
 // --------------------
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log("✅ Server running on port", PORT);
+  console.log(`Server running on port ${PORT}`);
 });
